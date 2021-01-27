@@ -84,7 +84,7 @@ decl_storage! {
 		/// Map from (class, token) to it's owner
 		pub TokenOwner get(fn token_owner): double_map hasher(twox_64_concat) T::ClassId, hasher(twox_64_concat) T::TokenId => T::AccountId;
 		/// Map from (class, account) to it's owned tokens of that class
-		pub AccountTokensByClass get(fn account_tokens): double_map hasher(twox_64_concat) T::ClassId, hasher(blake2_128_concat) T::AccountId => Vec<T::TokenId>;
+		pub TokensByClass get(fn account_tokens): map hasher(twox_64_concat) T::ClassId  => Vec<(T::AccountId, Vec<T::TokenId>)>;
 		/// The next available NFT class Id
 		pub NextClassId get(fn next_class_id): T::ClassId;
 		/// The next available token Id for an NFT class
@@ -178,8 +178,14 @@ decl_module! {
 			<NextTokenId<T>>::insert(class_id, next_token_id);
 			<TokenIssuance<T>>::mutate(class_id, |i| *i += One::one());
 			<TokenOwner<T>>::insert(class_id, token_id, owner.clone());
-			<AccountTokensByClass<T>>::append(class_id, owner.clone(), token_id);
-
+			<TokensByClass<T>>::mutate(class_id, |i| {
+				if let Some(e) = i.iter_mut().find(|x|x.0 == owner.clone()) {
+					e.1.push(token_id);
+				}
+				else {
+					i.push((owner.clone(), vec![token_id]));
+				}
+			});
 			Self::deposit_event(RawEvent::CreateToken(class_id.clone(), token_id.clone(), owner));
 
 			Ok(())
@@ -254,11 +260,18 @@ decl_module! {
 			}
 
 			// Update token ownership
-			<AccountTokensByClass<T>>::mutate(class_id, current_owner, |tokens| {
-				tokens.retain(|t| t != &token_id)
+			<TokensByClass<T>>::mutate(class_id, |i| {
+				if let Some(e) = i.iter_mut().find(|x|x.0 == current_owner.clone()) {
+					e.1.retain(|t| t != &token_id);
+				}
+				if let Some(n) = i.iter_mut().find(|x|x.0 == new_owner.clone()) {
+					n.1.push(token_id);
+				}
+				else {
+					i.push((new_owner.clone(), vec![token_id]));
+				}
 			});
 			<TokenOwner<T>>::insert(class_id, token_id, new_owner.clone());
-			<AccountTokensByClass<T>>::append(class_id, new_owner, token_id);
 		}
 	}
 }
